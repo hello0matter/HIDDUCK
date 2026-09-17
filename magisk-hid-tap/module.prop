@@ -1,0 +1,6 @@
+id=hid-tap
+name=HID keyboard tap
+version=1.1.0
+versionCode=11
+author=local
+description=Tap to turn HID keyboard on/off and type a harmless test. Pixel and Samsung.
