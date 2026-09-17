@@ -231,45 +231,42 @@ map_char() {
   case "$c" in
     [a-z0-9]) echo "$c"; return ;;
     [A-Z]) echo "left-shift $(printf '%s' "$c" | tr A-Z a-z)"; return ;;
+    ' ') echo space; return ;;
+    .) echo period; return ;;
+    ,) echo comma; return ;;
+    /) echo slash; return ;;
+    -) echo dash; return ;;
+    =) echo equal; return ;;
+    ';') echo semicolon; return ;;
+    '[') echo lbracket; return ;;
+    ']') echo rbracket; return ;;
+    '`') echo backquote; return ;;
   esac
-  h=$(printf '%s' "$c" | od -An -tx1)
-  h=$(printf '%s' "$h" | tr -d ' 
-' | tr 'A-F' 'a-f')
-  case "$h" in
-    09) echo tab ;;
-    20) echo space ;;
-    21) echo 'left-shift 1' ;;
-    22) echo 'left-shift quote' ;;
-    23) echo 'left-shift 3' ;;
-    24) echo 'left-shift 4' ;;
-    25) echo 'left-shift 5' ;;
-    26) echo 'left-shift 7' ;;
-    27) echo quote ;;
-    28) echo 'left-shift 9' ;;
-    29) echo 'left-shift 0' ;;
-    2a) echo 'left-shift 8' ;;
-    2b) echo 'left-shift equal' ;;
-    2c) echo comma ;;
-    2d) echo dash ;;
-    2e) echo period ;;
-    2f) echo slash ;;
-    3a) echo 'left-shift semicolon' ;;
-    3b) echo semicolon ;;
-    3c) echo 'left-shift comma' ;;
-    3d) echo equal ;;
-    3e) echo 'left-shift period' ;;
-    3f) echo 'left-shift slash' ;;
-    40) echo 'left-shift 2' ;;
-    5b) echo lbracket ;;
-    5c) echo backslash ;;
-    5d) echo rbracket ;;
-    5e) echo 'left-shift 6' ;;
-    5f) echo 'left-shift dash' ;;
-    60) echo backquote ;;
-    7b) echo 'left-shift lbracket' ;;
-    7c) echo 'left-shift backslash' ;;
-    7d) echo 'left-shift rbracket' ;;
-    7e) echo 'left-shift backquote' ;;
+  if [ "$c" = "$(printf '\047')" ]; then echo quote; return; fi
+  if [ "$c" = "$(printf '"')" ]; then echo 'left-shift quote'; return; fi
+  if [ "$c" = "$(printf '\\')" ]; then echo backslash; return; fi
+  case "$c" in
+    '!') echo 'left-shift 1' ;;
+    '@') echo 'left-shift 2' ;;
+    '#') echo 'left-shift 3' ;;
+    '$') echo 'left-shift 4' ;;
+    '%') echo 'left-shift 5' ;;
+    '^') echo 'left-shift 6' ;;
+    '&') echo 'left-shift 7' ;;
+    '*') echo 'left-shift 8' ;;
+    '(') echo 'left-shift 9' ;;
+    ')') echo 'left-shift 0' ;;
+    '_') echo 'left-shift dash' ;;
+    '+') echo 'left-shift equal' ;;
+    '{') echo 'left-shift lbracket' ;;
+    '}') echo 'left-shift rbracket' ;;
+    '|') echo 'left-shift backslash' ;;
+    ':') echo 'left-shift semicolon' ;;
+    '<') echo 'left-shift comma' ;;
+    '>') echo 'left-shift period' ;;
+    '?') echo 'left-shift slash' ;;
+    '~') echo 'left-shift backquote' ;;
+    $'\t') echo tab ;;
     *) return 1 ;;
   esac
 }
@@ -311,9 +308,7 @@ do_exec() {
         i=0
         len=${#s}
         while [ $i -lt $len ]; do
-          # mksh $(dd) drops trailing spaces; keep a sentinel.
-          raw=$( { printf '%s' "$s" | dd bs=1 skip=$i count=1 2>/dev/null; printf .; } )
-          ch=${raw%.}
+          ch=${s:$i:1}
           i=$((i+1))
           [ -n "$ch" ] || continue
           if [ "$ch" = " " ]; then
@@ -331,6 +326,7 @@ do_exec() {
       GUI\ *|WINDOWS\ *|META\ *)
         rest=${line#* }
         kb "left-meta $rest"
+        usleep 500000
         ;;
       CTRL\ *|CONTROL\ *)
         rest=${line#* }
