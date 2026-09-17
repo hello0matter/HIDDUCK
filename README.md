@@ -1,4 +1,4 @@
-# HID Duck
+﻿# HID Duck
 
 Pixel / Magisk 上的 Duck 脚本点按执行器：一个输入框 + 执行按钮。
 
@@ -36,9 +36,12 @@ gradlew.bat assembleDebug
 - `ENTER` `TAB` `ESC` `SPACE`
 - `GUI` / `CTRL` / `ALT` / `SHIFT` + 键名
 
-App 上的「按键间隔 ms」默认 30，对应每个 HID report 的按下/抬起间隔。`DELAY` 仍然是命令之间的停顿。
+App 上的「按键间隔 ms」默认 30，对应每个 HID report 的按下/抬起间隔。DELAY 仍然是命令之间的停顿。
+
+Duck 脚本和间隔会保存在应用本地，下次打开还在。
 
 ## 说明
 
 - Pixel 6 上 `/dev/hidg0` 已存在时不要再切 USB 组合，直接执行即可
 - 三星 USB HID 仍可能和系统 USB HAL 冲突，不在本仓库范围内
+

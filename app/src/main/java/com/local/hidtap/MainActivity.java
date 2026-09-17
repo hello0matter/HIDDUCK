@@ -1,6 +1,7 @@
 package com.local.hidtap;
 
 import android.app.Activity;
+import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.text.InputType;
@@ -16,15 +17,20 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 
 public class MainActivity extends Activity {
+  private static final String PREF = "hid";
+  private static final String KEY_DUCK = "duck";
+  private static final String KEY_DELAY = "delay";
   private static final String DEFAULT_DUCK =
       "DELAY 500\nSTRING NH HID SAFE TEST\nENTER";
   private EditText duck;
   private EditText delay;
   private TextView status;
   private Button run;
+  private SharedPreferences prefs;
 
   @Override protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
+    prefs = getSharedPreferences(PREF, MODE_PRIVATE);
     LinearLayout root = new LinearLayout(this);
     root.setOrientation(LinearLayout.VERTICAL);
     root.setBackgroundColor(Color.parseColor("#111111"));
@@ -38,7 +44,7 @@ public class MainActivity extends Activity {
     root.addView(title);
 
     TextView hint = new TextView(this);
-    hint.setText("USB 插电脑，先点记事本，再点执行。DELAY 是命令间停顿；下面间隔是每个按键的间隔。");
+    hint.setText("USB 插电脑，先点记事本，再点执行。脚本会自动保存。DELAY 是命令间停顿；按键间隔是每个键的间隔。");
     hint.setTextColor(Color.parseColor("#CCCCCC"));
     hint.setPadding(0, p / 2, 0, p / 2);
     root.addView(hint);
@@ -51,7 +57,7 @@ public class MainActivity extends Activity {
     delayLabel.setGravity(Gravity.CENTER_VERTICAL);
     row.addView(delayLabel);
     delay = new EditText(this);
-    delay.setText("30");
+    delay.setText(prefs.getString(KEY_DELAY, "30"));
     delay.setInputType(InputType.TYPE_CLASS_NUMBER);
     delay.setTextColor(Color.WHITE);
     delay.setBackgroundColor(Color.parseColor("#1B1B1B"));
@@ -63,7 +69,7 @@ public class MainActivity extends Activity {
     duck = new EditText(this);
     duck.setHint("DELAY 500\nSTRING NH HID SAFE TEST\nENTER");
     duck.setHintTextColor(Color.GRAY);
-    duck.setText(DEFAULT_DUCK);
+    duck.setText(prefs.getString(KEY_DUCK, DEFAULT_DUCK));
     duck.setTextColor(Color.WHITE);
     duck.setBackgroundColor(Color.parseColor("#1B1B1B"));
     duck.setMinLines(8);
@@ -90,7 +96,21 @@ public class MainActivity extends Activity {
     setContentView(root);
   }
 
+  @Override protected void onPause() {
+    super.onPause();
+    save();
+  }
+
+  private void save() {
+    if (duck == null || delay == null || prefs == null) return;
+    prefs.edit()
+        .putString(KEY_DUCK, duck.getText().toString())
+        .putString(KEY_DELAY, delay.getText().toString())
+        .apply();
+  }
+
   private void execute() {
+    save();
     final String text = duck.getText().toString();
     if (text.trim().isEmpty()) {
       status.setText("empty");
