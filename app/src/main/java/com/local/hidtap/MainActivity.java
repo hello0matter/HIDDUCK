@@ -4,10 +4,8 @@ import android.app.Activity;
 import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
+import android.os.SystemClock;
 import android.text.InputType;
-import android.util.Base64;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
@@ -15,47 +13,37 @@ import android.view.Window;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
-import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
-import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 
 public class MainActivity extends Activity {
   private static final String PREF = "hid";
-  private static final String KEY_DUCK = "duck";
-  private static final String KEY_DELAY = "delay";
-  private static final String KEY_EDIT = "edit";
-  private static final String KEY_ARMED = "armed";
+  private static final long TAP_WIN = 900;
+  private static final String CTL = "/data/local/tmp/hid-ctl.sh";
+  private static final String DUCK = "/data/local/tmp/hid-input.duck";
   private EditText duck;
   private EditText delay;
   private Button run;
   private SharedPreferences prefs;
   private boolean editOn;
   private boolean armed;
-  private boolean volUp;
-  private boolean volDown;
-  private boolean power;
-  private boolean comboLock;
-  private final Handler handler = new Handler(Looper.getMainLooper());
-  private Process evProc;
-  private Thread evThread;
-
-  private final Runnable editWait = new Runnable() {
-    @Override public void run() {
-      if (volUp && volDown && !power && !comboLock) {
-        comboLock = true;
-        toggleEdit();
-      }
-    }
-  };
+  private int upN;
+  private int dnN;
+  private long upT;
+  private long dnT;
 
   @Override protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
     requestWindowFeature(Window.FEATURE_NO_TITLE);
     prefs = getSharedPreferences(PREF, MODE_PRIVATE);
-    editOn = prefs.getBoolean(KEY_EDIT, false);
-    armed = prefs.getBoolean(KEY_ARMED, false);
+    editOn = prefs.getBoolean("edit", false);
+    armed = prefs.getBoolean("armed", false);
+    killOldKeys();
+    if (armed) hidAsync(true);
 
     LinearLayout root = new LinearLayout(this);
     root.setOrientation(LinearLayout.VERTICAL);
@@ -64,7 +52,7 @@ public class MainActivity extends Activity {
     root.setPadding(p, p, p, p);
 
     delay = new EditText(this);
-    delay.setText(prefs.getString(KEY_DELAY, "30"));
+    delay.setText(prefs.getString("delay", "30"));
     delay.setHint("");
     delay.setInputType(InputType.TYPE_CLASS_NUMBER);
     delay.setTextColor(Color.WHITE);
@@ -79,7 +67,7 @@ public class MainActivity extends Activity {
 
     duck = new EditText(this);
     duck.setHint("");
-    duck.setText(prefs.getString(KEY_DUCK, ""));
+    duck.setText(prefs.getString("duck", ""));
     duck.setTextColor(Color.WHITE);
     duck.setBackgroundColor(Color.parseColor("#1B1B1B"));
     duck.setGravity(Gravity.TOP);
@@ -103,7 +91,6 @@ public class MainActivity extends Activity {
     root.addView(run);
     setContentView(root);
     applyEdit();
-    startKeys();
   }
 
   @Override protected void onPause() {
@@ -111,41 +98,35 @@ public class MainActivity extends Activity {
     save();
   }
 
-  @Override protected void onDestroy() {
-    super.onDestroy();
-    stopKeys();
-  }
-
   @Override public boolean dispatchKeyEvent(KeyEvent event) {
     int k = event.getKeyCode();
-    if (k == KeyEvent.KEYCODE_VOLUME_UP || k == KeyEvent.KEYCODE_VOLUME_DOWN
-        || k == KeyEvent.KEYCODE_POWER) {
-      boolean down = event.getAction() == KeyEvent.ACTION_DOWN;
-      if (k == KeyEvent.KEYCODE_VOLUME_UP) volUp = down;
-      if (k == KeyEvent.KEYCODE_VOLUME_DOWN) volDown = down;
-      if (k == KeyEvent.KEYCODE_POWER) power = down;
-      onCombo();
+    if (k != KeyEvent.KEYCODE_VOLUME_UP && k != KeyEvent.KEYCODE_VOLUME_DOWN) {
+      return super.dispatchKeyEvent(event);
+    }
+    if (event.getAction() != KeyEvent.ACTION_DOWN || event.getRepeatCount() != 0) {
       return true;
     }
-    return super.dispatchKeyEvent(event);
-  }
-
-  private void onCombo() {
-    if (!(volUp && volDown)) {
-      handler.removeCallbacks(editWait);
-      comboLock = false;
-      return;
-    }
-    if (power) {
-      handler.removeCallbacks(editWait);
-      if (!comboLock) {
-        comboLock = true;
+    long now = SystemClock.uptimeMillis();
+    if (k == KeyEvent.KEYCODE_VOLUME_UP) {
+      if (now - upT > TAP_WIN) upN = 0;
+      upT = now;
+      upN++;
+      dnN = 0;
+      if (upN >= 3) {
+        upN = 0;
+        toggleEdit();
+      }
+    } else {
+      if (now - dnT > TAP_WIN) dnN = 0;
+      dnT = now;
+      dnN++;
+      upN = 0;
+      if (dnN >= 3) {
+        dnN = 0;
         toggleArm();
       }
-      return;
     }
-    handler.removeCallbacks(editWait);
-    handler.postDelayed(editWait, 350);
+    return true;
   }
 
   private void toggleEdit() {
@@ -159,6 +140,17 @@ public class MainActivity extends Activity {
     armed = !armed;
     save();
     log3("ARM", armed);
+    hidAsync(armed);
+  }
+
+  private void hidAsync(final boolean on) {
+    new Thread(new Runnable() {
+      @Override public void run() {
+        String out = hidCtl(on ? "on" : "off");
+        if (on) log3("HID", out.contains("HID_ON_OK"));
+        else log3("HID", out.contains("HID_OFF_OK"));
+      }
+    }).start();
   }
 
   private void applyEdit() {
@@ -170,10 +162,10 @@ public class MainActivity extends Activity {
   private void save() {
     if (duck == null || delay == null || prefs == null) return;
     prefs.edit()
-        .putString(KEY_DUCK, duck.getText().toString())
-        .putString(KEY_DELAY, delay.getText().toString())
-        .putBoolean(KEY_EDIT, editOn)
-        .putBoolean(KEY_ARMED, armed)
+        .putString("duck", duck.getText().toString())
+        .putString("delay", delay.getText().toString())
+        .putBoolean("edit", editOn)
+        .putBoolean("armed", armed)
         .apply();
   }
 
@@ -199,12 +191,7 @@ public class MainActivity extends Activity {
     run.setEnabled(false);
     new Thread(new Runnable() {
       @Override public void run() {
-        String b64 = Base64.encodeToString(
-            text.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP);
-        String out = su("echo " + b64
-            + " | base64 -d > /data/local/tmp/hid-input.duck"
-            + " && export HID_KEY_DELAY_MS=" + keyDelay
-            + " && sh /data/adb/modules/hid-tap/hid-ctl.sh exec");
+        String out = runDuck(text, keyDelay);
         noteRun(out);
         runOnUiThread(new Runnable() {
           @Override public void run() { run.setEnabled(true); }
@@ -213,10 +200,60 @@ public class MainActivity extends Activity {
     }).start();
   }
 
+  private String installCtl() {
+    String ctl = asset("hid-ctl.sh");
+    if (ctl.isEmpty()) return "MOD_NO_ASSET";
+    try {
+      File ctlF = new File(getCacheDir(), "hid-ctl.sh");
+      writeFile(ctlF, ctl);
+      return su("cp " + ctlF.getAbsolutePath() + " " + CTL + " && chmod 755 " + CTL);
+    } catch (Exception e) {
+      return "FAIL " + e.getMessage();
+    }
+  }
+
+  private String hidCtl(String cmd) {
+    String ins = installCtl();
+    if (ins.contains("MOD_NO_ASSET") || ins.startsWith("FAIL ")) return ins;
+    return su("sh " + CTL + " " + cmd);
+  }
+
+  private String runDuck(String text, int keyDelay) {
+    String ins = installCtl();
+    if (ins.contains("MOD_NO_ASSET") || ins.startsWith("FAIL ")) return ins;
+    try {
+      File duckF = new File(getCacheDir(), "hid-input.duck");
+      writeFile(duckF, text);
+      return su(
+          "cp " + duckF.getAbsolutePath() + " " + DUCK
+              + " && HID_KEY_DELAY_MS=" + keyDelay + " sh " + CTL + " exec");
+    } catch (Exception e) {
+      return "FAIL " + e.getMessage();
+    }
+  }
+
+  private void writeFile(File f, String s) throws Exception {
+    FileOutputStream os = new FileOutputStream(f);
+    os.write(s.getBytes(StandardCharsets.UTF_8));
+    os.close();
+  }
+
+  private String asset(String name) {
+    try {
+      InputStream in = getAssets().open(name);
+      ByteArrayOutputStream bos = new ByteArrayOutputStream();
+      pump(in, bos);
+      in.close();
+      return bos.toString("UTF-8");
+    } catch (Exception e) {
+      return "";
+    }
+  }
+
   private void noteRun(String out) {
     if (out == null) out = "";
-    if (out.contains("CONVERT_FAIL")) log3("CNV", false);
-    else if (out.contains("missing /dev/hidg0")) log3("HID", false);
+    if (out.contains("missing /dev/hidg0")) log3("HID", false);
+    else if (out.contains("CONVERT_FAIL")) log3("CNV", false);
     else if (out.contains("kb_fail") || out.contains("RUN_FAIL")) log3("RUN", false);
     else if (out.contains("RUN_OK")) log3("RUN", true);
     else log3("MOD", false);
@@ -226,46 +263,33 @@ public class MainActivity extends Activity {
     final String line = code + (ok ? " OK" : " FAIL");
     new Thread(new Runnable() {
       @Override public void run() {
-        su("echo '" + line + "' >> /sdcard/hdl.log");
+        su("mkdir -p /sdcard/Download"
+            + " && echo '" + line + "' >> /sdcard/hdl.log"
+            + " && echo '" + line + "' >> /sdcard/Download/hdl.log");
       }
     }).start();
   }
 
-  private void startKeys() {
-    evThread = new Thread(new Runnable() {
+  private void killOldKeys() {
+    new Thread(new Runnable() {
       @Override public void run() {
-        try {
-          evProc = Runtime.getRuntime().exec(new String[] {"su", "-c", "getevent -lt"});
-          BufferedReader br = new BufferedReader(
-              new InputStreamReader(evProc.getInputStream()));
-          String line;
-          while ((line = br.readLine()) != null) {
-            final String s = line;
-            final boolean down = s.contains(" DOWN");
-            final boolean up = s.contains(" UP");
-            if (!down && !up) continue;
-            runOnUiThread(new Runnable() {
-              @Override public void run() {
-                if (s.contains("POWER")) power = down;
-                if (s.contains("VOLUMEUP") || s.contains("VOLUME_UP")) volUp = down;
-                if (s.contains("VOLUMEDOWN") || s.contains("VOLUME_DOWN")) volDown = down;
-                onCombo();
-              }
-            });
-          }
-        } catch (Exception ignored) {}
+        su("pkill -f 'getevent -lt' >/dev/null 2>&1 || true");
       }
-    });
-    evThread.start();
-  }
-
-  private void stopKeys() {
-    try { if (evProc != null) evProc.destroy(); } catch (Exception ignored) {}
+    }).start();
   }
 
   private String su(String cmd) {
+    return su(cmd, null);
+  }
+
+  private String su(String cmd, String stdin) {
     try {
       Process p = Runtime.getRuntime().exec(new String[] {"su", "-c", cmd});
+      OutputStream os = p.getOutputStream();
+      if (stdin != null) {
+        os.write(stdin.getBytes(StandardCharsets.UTF_8));
+      }
+      os.close();
       ByteArrayOutputStream bos = new ByteArrayOutputStream();
       pump(p.getInputStream(), bos);
       pump(p.getErrorStream(), bos);

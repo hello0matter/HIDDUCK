@@ -9,11 +9,39 @@ LOG=/data/local/tmp/hid-tap.log
 KEY_DELAY_MS=${HID_KEY_DELAY_MS:-30}
 KEY_DELAY_US=$((KEY_DELAY_MS * 1000))
 log() { echo "$(date '+%F %T') $MODEL $CMD: $*" >> "$LOG"; }
+hidg_ok() {
+  [ -c /dev/hidg0 ] || [ -c /proc/1/root/dev/hidg0 ]
+}
+
+wait_hidg() {
+  i=0
+  while [ $i -lt 25 ]; do
+    if hidg_ok; then
+      chmod 666 /dev/hidg0 /dev/hidg1 2>/dev/null || true
+      chmod 666 /proc/1/root/dev/hidg0 /proc/1/root/dev/hidg1 2>/dev/null || true
+      return 0
+    fi
+    usleep 100000
+    i=$((i+1))
+  done
+  return 1
+}
+
 
 kb_report() {
-  printf "\x${1}\x00\x${2}\x00\x00\x00\x00\x00" > /dev/hidg0 || return 1
+  DEV=/dev/hidg0
+  [ -c "$DEV" ] || DEV=/proc/1/root/dev/hidg0
+  [ -c "$DEV" ] || return 1
+  hid_write() {
+    if command -v timeout >/dev/null 2>&1; then
+      timeout 1 dd of="$DEV" bs=8 count=1 status=none 2>/dev/null
+    else
+      dd of="$DEV" bs=8 count=1 status=none 2>/dev/null
+    fi
+  }
+  printf "\x${1}\x00\x${2}\x00\x00\x00\x00\x00" | hid_write || return 1
   usleep "$KEY_DELAY_US"
-  printf '\x00\x00\x00\x00\x00\x00\x00\x00' > /dev/hidg0 || return 1
+  printf '\x00\x00\x00\x00\x00\x00\x00\x00' | hid_write || return 1
   usleep "$KEY_DELAY_US"
 }
 
@@ -71,41 +99,29 @@ kb() {
 }
 
 pixel_on() {
+  if hidg_ok; then chmod 666 /dev/hidg0 /dev/hidg1 2>/dev/null || true; return 0; fi
   G=/config/usb_gadget/g1
   C=$G/configs/b.1
   UDC=$(getprop sys.usb.controller)
   [ -n "$UDC" ] || UDC=11110000.dwc3
   mkdir -p "$G/functions/hid.0" "$G/functions/hid.1"
-  echo 1 > "$G/functions/hid.0/protocol"
-  echo 1 > "$G/functions/hid.0/subclass"
-  echo 8 > "$G/functions/hid.0/report_length"
-  printf '\x05\x01\x09\x06\xa1\x01\x05\x07\x19\xe0\x29\xe7\x15\x00\x25\x01\x75\x01\x95\x08\x81\x02\x95\x01\x75\x08\x81\x03\x95\x05\x75\x01\x05\x08\x19\x01\x29\x05\x91\x02\x95\x01\x75\x03\x91\x03\x95\x06\x75\x08\x15\x00\x25\x65\x05\x07\x19\x00\x29\x65\x81\x00\xc0' > "$G/functions/hid.0/report_desc"
-  echo 1 > "$G/functions/hid.1/protocol"
-  echo 2 > "$G/functions/hid.1/subclass"
-  echo 4 > "$G/functions/hid.1/report_length"
-  printf '\x05\x01\x09\x02\xa1\x01\x09\x01\xa1\x00\x05\x09\x19\x01\x29\x05\x15\x00\x25\x01\x95\x05\x75\x01\x81\x02\x95\x01\x75\x03\x81\x01\x05\x01\x09\x30\x09\x31\x09\x38\x15\x81\x25\x7f\x75\x08\x95\x03\x81\x06\xc0\xc0' > "$G/functions/hid.1/report_desc"
-  echo none > "$G/UDC"
-  rm -f "$C"/function0 "$C"/function1 "$C"/function2 "$C"/function3
-  ln -s "$G/functions/hid.0" "$C/function0"
-  ln -s "$G/functions/hid.1" "$C/function1"
-  ln -s "$G/functions/ffs.adb" "$C/function2"
-  setprop sys.usb.ffs.ready 1
-  echo "$UDC" > "$G/UDC"
-  usleep 400000
-  chmod 666 /dev/hidg0 /dev/hidg1 2>/dev/null || true
-}
-
-pixel_off() {
-  G=/config/usb_gadget/g1
-  C=$G/configs/b.1
-  UDC=$(getprop sys.usb.controller)
-  [ -n "$UDC" ] || UDC=11110000.dwc3
+  echo 1 > "$G/functions/hid.0/protocol" 2>/dev/null || true
+  echo 1 > "$G/functions/hid.0/subclass" 2>/dev/null || true
+  echo 8 > "$G/functions/hid.0/report_length" 2>/dev/null || true
+  printf '\x05\x01\x09\x06\xa1\x01\x05\x07\x19\xe0\x29\xe7\x15\x00\x25\x01\x75\x01\x95\x08\x81\x02\x95\x01\x75\x08\x81\x03\x95\x05\x75\x01\x05\x08\x19\x01\x29\x05\x91\x02\x95\x01\x75\x03\x91\x03\x95\x06\x75\x08\x15\x00\x25\x65\x05\x07\x19\x00\x29\x65\x81\x00\xc0' > "$G/functions/hid.0/report_desc" 2>/dev/null || true
+  echo 1 > "$G/functions/hid.1/protocol" 2>/dev/null || true
+  echo 2 > "$G/functions/hid.1/subclass" 2>/dev/null || true
+  echo 4 > "$G/functions/hid.1/report_length" 2>/dev/null || true
+  printf '\x05\x01\x09\x02\xa1\x01\x09\x01\xa1\x00\x05\x09\x19\x01\x29\x05\x15\x00\x25\x01\x95\x05\x75\x01\x81\x02\x95\x01\x75\x03\x81\x01\x05\x01\x09\x30\x09\x31\x09\x38\x15\x81\x25\x7f\x75\x08\x95\x03\x81\x06\xc0\xc0' > "$G/functions/hid.1/report_desc" 2>/dev/null || true
   echo none > "$G/UDC" 2>/dev/null || true
-  rm -f "$C"/function0 "$C"/function1 "$C"/function2 "$C"/function3
-  ln -s "$G/functions/ffs.adb" "$C/function0" 2>/dev/null || true
+  usleep 200000
+  rm -f "$C"/function0 "$C"/function1 "$C"/function2 "$C"/function3 2>/dev/null || true
+  ln -s "$G/functions/hid.0" "$C/function0" 2>/dev/null || true
+  ln -s "$G/functions/hid.1" "$C/function1" 2>/dev/null || true
+  ln -s "$G/functions/ffs.adb" "$C/function2" 2>/dev/null || true
   setprop sys.usb.ffs.ready 1
   echo "$UDC" > "$G/UDC" 2>/dev/null || true
-  setprop sys.usb.config adb
+  wait_hidg || true
 }
 
 samsung_on() {
@@ -164,21 +180,37 @@ samsung_off() {
   rm -f /dev/hidg0
 }
 
+pixel_off() {
+  G=/config/usb_gadget/g1
+  C=$G/configs/b.1
+  UDC=$(getprop sys.usb.controller)
+  [ -n "$UDC" ] || UDC=11110000.dwc3
+  echo none > "$G/UDC" 2>/dev/null || true
+  usleep 200000
+  rm -f "$C"/function0 "$C"/function1 "$C"/function2 "$C"/function3 2>/dev/null || true
+  ln -s "$G/functions/ffs.adb" "$C/function2" 2>/dev/null || true
+  setprop sys.usb.ffs.ready 1
+  echo "$UDC" > "$G/UDC" 2>/dev/null || true
+  setprop sys.usb.config adb
+}
+
 do_on() {
   case "$MODEL" in
     "Pixel 6")
-      if [ -c /dev/hidg0 ]; then
-        echo PIXEL_HID_READY
-        ls -l /dev/hidg0
-        return 0
-      fi
       pixel_on
       ;;
     "SM-F731N") samsung_on ;;
     *) echo "unsupported model: $MODEL"; exit 2 ;;
   esac
   setprop persist.nethunter.hid 1
-  if [ -c /dev/hidg0 ]; then echo HID_ON_OK; ls -l /dev/hidg0; else echo HID_ON_FAIL; exit 1; fi
+  if hidg_ok; then
+    echo HID_ON_OK
+    hidg_dev=$(hidg_ok; ls -l /dev/hidg0 /proc/1/root/dev/hidg0 2>/dev/null | head -2)
+    echo "$hidg_dev"
+  else
+    echo HID_ON_FAIL
+    exit 1
+  fi
 }
 
 do_off() {
@@ -278,12 +310,12 @@ do_exec() {
     echo missing $IN
     exit 1
   fi
-  if [ ! -c /dev/hidg0 ]; then
+  if ! hidg_ok; then
     echo RUN_FAIL
     echo missing /dev/hidg0
     exit 3
   fi
-  chmod 666 /dev/hidg0 2>/dev/null || true
+  chmod 666 /dev/hidg0 /proc/1/root/dev/hidg0 2>/dev/null || true
   echo CONVERT_OK
   usleep 300000
   # strip CR
@@ -341,14 +373,23 @@ do_exec() {
         kb "left-shift $rest"
         ;;
       *)
-        echo CONVERT_FAIL
         echo "unsupported: $line"
-        exit 1
         ;;
     esac
   done < "$IN"
   echo RUN_OK
 }
+
+if [ -z "$HID_NSENTER_DONE" ] && command -v nsenter >/dev/null 2>&1; then
+  self=$(readlink /proc/self/ns/mnt 2>/dev/null)
+  init=$(readlink /proc/1/ns/mnt 2>/dev/null)
+  if [ -n "$self" ] && [ -n "$init" ] && [ "$self" != "$init" ]; then
+    export HID_NSENTER_DONE=1
+    export HID_KEY_DELAY_MS
+    export HID_KEEP
+    exec nsenter -t 1 -m -- sh "$0" "$@"
+  fi
+fi
 
 case "$CMD" in
   on) do_on ;;

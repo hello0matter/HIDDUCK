@@ -6,8 +6,8 @@ android {
     applicationId "com.local.hidtap"
     minSdk 26
     targetSdk 34
-    versionCode 5
-    versionName "1.4"
+    versionCode 9
+    versionName "1.8"
   }
   buildTypes { release { minifyEnabled false } }
   compileOptions {
