@@ -6,7 +6,7 @@ MODDIR=$(dirname "$0")
 CMD=${1:-status}
 MODEL=$(getprop ro.product.model)
 LOG=/data/local/tmp/hid-tap.log
-KEY_DELAY_MS=${HID_KEY_DELAY_MS:-30}
+KEY_DELAY_MS=${HID_KEY_DELAY_MS:-0}
 KEY_DELAY_US=$((KEY_DELAY_MS * 1000))
 log() { echo "$(date '+%F %T') $MODEL $CMD: $*" >> "$LOG"; }
 hidg_ok() {
@@ -40,9 +40,9 @@ kb_report() {
     fi
   }
   printf "\x${1}\x00\x${2}\x00\x00\x00\x00\x00" | hid_write || return 1
-  usleep "$KEY_DELAY_US"
+  if [ "$KEY_DELAY_US" -gt 0 ]; then usleep "$KEY_DELAY_US"; fi
   printf '\x00\x00\x00\x00\x00\x00\x00\x00' | hid_write || return 1
-  usleep "$KEY_DELAY_US"
+  if [ "$KEY_DELAY_US" -gt 0 ]; then usleep "$KEY_DELAY_US"; fi
 }
 
 key_code() {
@@ -317,7 +317,6 @@ do_exec() {
   fi
   chmod 666 /dev/hidg0 /proc/1/root/dev/hidg0 2>/dev/null || true
   echo CONVERT_OK
-  usleep 300000
   # strip CR
   while IFS= read -r line || [ -n "$line" ]; do
     line=$(printf '%s' "$line" | tr -d '\r')
@@ -358,7 +357,6 @@ do_exec() {
       GUI\ *|WINDOWS\ *|META\ *)
         rest=${line#* }
         kb "left-meta $rest"
-        usleep 500000
         ;;
       CTRL\ *|CONTROL\ *)
         rest=${line#* }

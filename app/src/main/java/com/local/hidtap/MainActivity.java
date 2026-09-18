@@ -43,7 +43,6 @@ public class MainActivity extends Activity {
     editOn = prefs.getBoolean("edit", false);
     armed = prefs.getBoolean("armed", false);
     killOldKeys();
-    if (armed) hidAsync(true);
 
     LinearLayout root = new LinearLayout(this);
     root.setOrientation(LinearLayout.VERTICAL);
@@ -140,17 +139,6 @@ public class MainActivity extends Activity {
     armed = !armed;
     save();
     log3("ARM", armed);
-    hidAsync(armed);
-  }
-
-  private void hidAsync(final boolean on) {
-    new Thread(new Runnable() {
-      @Override public void run() {
-        String out = hidCtl(on ? "on" : "off");
-        if (on) log3("HID", out.contains("HID_ON_OK"));
-        else log3("HID", out.contains("HID_OFF_OK"));
-      }
-    }).start();
   }
 
   private void applyEdit() {
@@ -178,14 +166,14 @@ public class MainActivity extends Activity {
       return;
     }
     String delayMs = delay.getText().toString().trim();
-    if (delayMs.isEmpty()) delayMs = "30";
+    if (delayMs.isEmpty()) delayMs = "0";
     int ms;
     try {
       ms = Integer.parseInt(delayMs);
-      if (ms < 1) ms = 1;
-      if (ms > 500) ms = 500;
+      if (ms < 0) ms = 0;
+      if (ms > 2000) ms = 2000;
     } catch (Exception e) {
-      ms = 30;
+      ms = 0;
     }
     final int keyDelay = ms;
     run.setEnabled(false);
@@ -210,12 +198,6 @@ public class MainActivity extends Activity {
     } catch (Exception e) {
       return "FAIL " + e.getMessage();
     }
-  }
-
-  private String hidCtl(String cmd) {
-    String ins = installCtl();
-    if (ins.contains("MOD_NO_ASSET") || ins.startsWith("FAIL ")) return ins;
-    return su("sh " + CTL + " " + cmd);
   }
 
   private String runDuck(String text, int keyDelay) {
